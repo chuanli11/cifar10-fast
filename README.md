@@ -1,3 +1,8 @@
+# Train in command line (no Jupyter Notebook is required)
+
+```
+python3 train_cifar10.py --batch_size=512 --num_runs=1 --device_ids=0
+```
 # cifar10-fast
 
 Demonstration of training a small ResNet on CIFAR10 to 94% test accuracy in 79 seconds as described [in this blog series](https://www.myrtle.ai/2018/09/24/how_to_train_your_resnet/).

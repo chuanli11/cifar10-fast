@@ -1,5 +1,6 @@
 from core import *
 from torch_backend import *
+import argparse
 
 def conv_bn(c_in, c_out, bn_weight_init=1.0, **kw):
     return {
@@ -38,39 +39,71 @@ def net(channels=None, weight=0.125, pool=nn.MaxPool2d(2), extra_layers=(), res_
         n[layer]['extra'] = conv_bn(channels[layer], channels[layer], **kw)       
     return n
 
-losses = {
-    'loss':  (nn.CrossEntropyLoss(reduce=False), [('classifier',), ('target',)]),
-    'correct': (Correct(), [('classifier',), ('target',)]),
-}
+def main():
 
-DATA_DIR = './data'
-dataset = cifar10(root=DATA_DIR)
-t = Timer()
-print('Preprocessing training data')
-train_set = list(zip(transpose(normalise(pad(dataset['train']['data'], 4))), dataset['train']['labels']))
-print(f'Finished in {t():.2} seconds')
-print('Preprocessing test data')
-test_set = list(zip(transpose(normalise(dataset['test']['data'])), dataset['test']['labels']))
-print(f'Finished in {t():.2} seconds')
+  parser = argparse.ArgumentParser(
+    formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
-epochs=24
-lr_schedule = PiecewiseLinear([0, 5, epochs], [0, 0.4, 0])
-batch_size = 512
-transforms = [Crop(32, 32), FlipLR(), Cutout(8, 8)]
-N_runs = 1
+  parser.add_argument("--batch_size",
+                      help="Batch Size",
+                      type=int,
+                      default=512)
 
-train_batches = Batches(Transform(train_set, transforms), batch_size, shuffle=True, set_random_choices=True, drop_last=True)
-test_batches = Batches(test_set, batch_size, shuffle=False, drop_last=False)
-lr = lambda step: lr_schedule(step/len(train_batches))/batch_size
+  parser.add_argument("--num_runs",
+                      help="Number of runs",
+                      type=int,
+                      default=5)
 
-summaries = []
-for i in range(N_runs):
-    print(f'Starting Run {i} at {localtime()}')
-    model = Network(union(net(), losses)).to(device).half()
-    opt = SGD(trainable_params(model), lr=lr, momentum=0.9, weight_decay=5e-4*batch_size, nesterov=True)
-    summaries.append(train(model, opt, train_batches, test_batches, epochs, loggers=(TableLogger(),)))
+  parser.add_argument("--device_ids",
+                      help="list of GPU devices",
+                      type=str,
+                      default="0")  
 
-test_accs = np.array([s['test acc'] for s in summaries])
-print(f'mean test accuracy: {np.mean(test_accs):.4f}')
-print(f'median test accuracy: {np.median(test_accs):.4f}')
-print(f'{np.sum(test_accs>=0.94)}/{N_runs} >= 94%')
+  params = parser.parse_args()
+
+  losses = {
+      'loss':  (nn.CrossEntropyLoss(reduce=False), [('classifier',), ('target',)]),
+      'correct': (Correct(), [('classifier',), ('target',)]),
+  }
+
+  DATA_DIR = './data'
+  dataset = cifar10(root=DATA_DIR)
+  t = Timer()
+  print('Preprocessing training data')
+  train_set = list(zip(transpose(normalise(pad(dataset['train']['data'], 4))), dataset['train']['labels']))
+  print(f'Finished in {t():.2} seconds')
+  print('Preprocessing test data')
+  test_set = list(zip(transpose(normalise(dataset['test']['data'])), dataset['test']['labels']))
+  print(f'Finished in {t():.2} seconds')
+
+  epochs=24
+  lr_schedule = PiecewiseLinear([0, 5, epochs], [0, 0.4, 0])
+  batch_size = params.batch_size
+  transforms = [Crop(32, 32), FlipLR(), Cutout(8, 8)]
+  N_runs = params.num_runs
+
+  device_ids = [int(n) for n in params.device_ids.split(',')]
+
+  train_batches = Batches(Transform(train_set, transforms), batch_size, shuffle=True, set_random_choices=True, drop_last=True)
+  test_batches = Batches(test_set, batch_size, shuffle=False, drop_last=False)
+  lr = lambda step: lr_schedule(step/len(train_batches))/batch_size
+
+  summaries = []
+  for i in range(N_runs):
+      print(f'Starting Run {i} at {localtime()}')
+      # model = Network(union(net(), losses)).to(device).half()
+
+      model = nn.DataParallel(Network(union(net(), losses)).half(), device_ids=device_ids)
+      model.to(device)
+
+      opt = SGD(trainable_params(model), lr=lr, momentum=0.9, weight_decay=5e-4*batch_size, nesterov=True)
+      summaries.append(train(model, opt, train_batches, test_batches, epochs, loggers=(TableLogger(),)))
+
+  test_accs = np.array([s['test acc'] for s in summaries])
+  print(f'mean test accuracy: {np.mean(test_accs):.4f}')
+  print(f'median test accuracy: {np.median(test_accs):.4f}')
+  print(f'{np.sum(test_accs>=0.94)}/{N_runs} >= 94%')
+
+
+if __name__ == "__main__":
+  main()
