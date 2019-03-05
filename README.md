@@ -1,6 +1,21 @@
 # Train in command line (no Jupyter Notebook is required)
 
 ```
+# Install Python3 if it is missing
+sudo add-apt-repository ppa:jonathonf/python-3.6
+sudo apt-get update
+sudo apt-get install python3.6
+
+
+git clone https://github.com/lambdal/cifar10-fast.git
+virtualenv -p python3.6 env
+. env/bin/activate
+pip install https://download.pytorch.org/whl/cu90/torch-0.4.1-cp36-cp36m-linux_x86_64.whl
+pip install torchvision==0.2.1
+pip install pandas
+```
+
+```
 python3 train_cifar10.py --batch_size=512 --num_runs=1 --device_ids=0
 ```
 # cifar10-fast
